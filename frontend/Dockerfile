@@ -1,22 +1,63 @@
-FROM node:20-alpine AS development-dependencies-env
-COPY . /app
+# syntax=docker/dockerfile:1
+
+# Base stage with Node.js
+FROM node:20-alpine AS base
 WORKDIR /app
+
+# Development stage
+FROM base AS development
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install all dependencies (including devDependencies for Vite)
 RUN npm ci
 
-FROM node:20-alpine AS production-dependencies-env
-COPY ./package.json package-lock.json /app/
-WORKDIR /app
+# Copy application code
+COPY . .
+
+# Expose Vite dev server port
+EXPOSE 5173
+
+# Run development server
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# Production dependencies stage
+FROM base AS production-dependencies
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install production dependencies only
 RUN npm ci --omit=dev
 
-FROM node:20-alpine AS build-env
-COPY . /app/
-COPY --from=development-dependencies-env /app/node_modules /app/node_modules
-WORKDIR /app
+# Build stage
+FROM base AS build
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install all dependencies for building
+RUN npm ci
+
+# Copy application code
+COPY . .
+
+# Build the application
 RUN npm run build
 
-FROM node:20-alpine
-COPY ./package.json package-lock.json /app/
-COPY --from=production-dependencies-env /app/node_modules /app/node_modules
-COPY --from=build-env /app/build /app/build
-WORKDIR /app
+# Production stage
+FROM base AS production
+
+# Copy package files and production dependencies
+COPY package.json package-lock.json ./
+COPY --from=production-dependencies /app/node_modules ./node_modules
+
+# Copy built application
+COPY --from=build /app/build ./build
+
+# Expose production server port
+EXPOSE 3000
+
+# Run production server
 CMD ["npm", "run", "start"]
